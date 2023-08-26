@@ -5,14 +5,14 @@ import json
 import string
 
 # Replace with your Instapaper credentials
-with open("instapaper_oauth_config.json", "r") as f:
+with open("oauth_config.json", "r") as f:
     oauth_config = json.load(f)
 
-with open("instapaper_user_credentials.json", "r") as f:
+with open("user_credentials.json", "r") as f:
     user_credentials = json.load(f)
 
-instapaper = Instapaper(oauth_config.id, oauth_config.secret)
-instapaper.login(user_credentials.username, user_credentials.password)
+instapaper = Instapaper(oauth_config['id'], oauth_config['secret'])
+instapaper.login(user_credentials['username'], user_credentials['password'])
 
 books_folder = Path('books')
 
@@ -30,25 +30,33 @@ def make_safe_filename(s):
 
 # Get all bookmarks
 for bookmark in instapaper.bookmarks(limit=1):
-    bookmark.title = 'instapaper:' + bookmark.title
+    bookmark.original_title = bookmark.title
+    bookmark.title = 'Instapaper: ' + bookmark.title
     book_file_name = make_safe_filename(bookmark.title)
     if not book_file_name:
         continue 
     if not (books_folder / f'{book_file_name}.epub').exists():
         print(f'Downloading {bookmark.title}')
-        print(bookmark.text)
 
         # Get the article content
         content = bookmark.html
         if not content.strip():
             print(f'Skipping {bookmark.title} due to empty content')
             continue
+
+        # Create the Cover
+        cover_content = f'<html><body><h1 style="width: 70%; margin: 0 auto;">{bookmark.original_title}</h1></body></html>'
         
         # Create an epub book
         book = epub.EpubBook()
         book.set_identifier(str(bookmark.bookmark_id))
         book.set_title(bookmark.title)
         book.set_language('en')
+
+        # Create an epub chapter with the cover
+        cover = epub.EpubHtml(title=bookmark.title, file_name=f'{bookmark.bookmark_id}_cover.xhtml', lang='en')
+        cover.content = cover_content
+        book.add_item(cover)
         
         # Create an epub chapter from the article content
         chapter = epub.EpubHtml(title=bookmark.title, file_name=f'{bookmark.bookmark_id}.xhtml', lang='en')
@@ -56,14 +64,14 @@ for bookmark in instapaper.bookmarks(limit=1):
         book.add_item(chapter)
         
         # Add the chapter to the book's table of contents
-        book.toc = (chapter,)
+        book.toc = (cover,chapter,)
         
         # Add navigation files
         book.add_item(epub.EpubNcx())
         book.add_item(epub.EpubNav())
         
         # Define the spine of the book
-        book.spine = [chapter,]
+        book.spine = [cover, chapter,]
         
         # Write the epub file to disk
         epub.write_epub(f'./books/{book_file_name}.epub', book, {})
