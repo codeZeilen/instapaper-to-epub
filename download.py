@@ -24,6 +24,9 @@ else:
     num_bookmarks_to_retrieve = 70
 
 books_folder = Path('books')
+books_folder.mkdir(exist_ok=True)
+tmp_images_folder = Path('./tmp_images')
+tmp_images_folder.mkdir(exist_ok=True)
 
 def download():
     for bookmark in instapaper.bookmarks(limit=num_bookmarks_to_retrieve):
@@ -134,10 +137,9 @@ def shrink_replace_and_add_images(html, book):
     images = filter(lambda i: i.has_attr('src') and not i['src'].startswith('data:'), images)
     for img in images:  
         url_file_name = urlparse(img['src']).path.split('/')[-1]
-        filename = f'./tmp_images/{url_file_name}'
-        filepath = Path(filename)
+        file_path = tmp_images_folder / url_file_name
         
-        if (not filepath.suffix) or (filepath.suffix in ('.html', '.svg', '.webp')):
+        if (not file_path.suffix) or (file_path.suffix in ('.html', '.svg', '.webp')):
             replace_img_with_alt_text(img, soup)
             continue
         
@@ -150,11 +152,13 @@ def shrink_replace_and_add_images(html, book):
             pass
 
         if image_data:
-            image_data = convert_image(image_data, filename)
-            add_image_to_book(book, url_file_name, image_data)
-
-            # Update the img tag in the HTML
-            img['src'] = url_file_name
+            try: 
+                image_data = convert_image(image_data, file_path)
+                add_image_to_book(book, url_file_name, image_data)
+                img['src'] = url_file_name
+            except:
+                # Something went wrong while parsing/converting/storing the image
+                replace_img_with_alt_text(img, soup)    
         else:
             replace_img_with_alt_text(img, soup)
 
