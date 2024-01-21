@@ -194,9 +194,8 @@ def replace_img_with_alt_text(img, soup):
         return False
     
 def convert_image(image_data, filename):
-    # Dither the image to save space
     image = Image.open(io.BytesIO(image_data))
-    image = image.convert('1', dither=Image.FLOYDSTEINBERG)
+    image = image.convert('L')
     image.save(filename)
 
     with open(filename, 'rb') as f:
