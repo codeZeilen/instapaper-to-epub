@@ -9,6 +9,7 @@ import string
 import sys
 import io
 import mimetypes as mime
+import hashlib
 from urllib.parse import urlparse
 
 with open("oauth_config.json", "r") as f:
@@ -132,17 +133,25 @@ def make_safe_filename(s):
 
 def shrink_replace_and_add_images(html, book):
     soup = BeautifulSoup(html, 'html.parser')
+    replaced_images = dict()
 
     images = soup.find_all('img')
     images = filter(lambda i: i.has_attr('src') and not i['src'].startswith('data:'), images)
     for img in images:  
-        url_file_name = urlparse(img['src']).path.split('/')[-1]
+        image_url = urlparse(img['src']) 
+        url_file_name = hashlib.md5(img['src'].encode('utf-8')).hexdigest() + image_url.path.split('/')[-1]
         file_path = tmp_images_folder / url_file_name
         
+        # Special Cases
         if (not file_path.suffix) or (file_path.suffix in ('.html', '.svg', '.webp')):
             replace_img_with_alt_text(img, soup)
             continue
-        
+
+        if img['src'] in replaced_images:
+            img['src'] = replaced_images[img['src']]
+            continue
+
+        # Common Case        
         image_data = None
         try:
             response = requests.get(img['src'])
@@ -155,6 +164,7 @@ def shrink_replace_and_add_images(html, book):
             try: 
                 image_data = convert_image(image_data, file_path)
                 add_image_to_book(book, url_file_name, image_data)
+                replaced_images[img['src']] = url_file_name
                 img['src'] = url_file_name
             except:
                 # Something went wrong while parsing/converting/storing the image
