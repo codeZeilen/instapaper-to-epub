@@ -129,6 +129,9 @@ def make_safe_filename(s):
     # Replace spaces with underscores
     safe_filename = safe_filename.replace(' ', '_')
 
+    # Shorten filename
+    safe_filename = safe_filename[:100]
+
     return safe_filename
 
 def shrink_replace_and_add_images(html, book):
