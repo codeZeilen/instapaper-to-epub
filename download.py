@@ -34,18 +34,20 @@ def download():
         if not get_content(bookmark):
             continue
 
-        book = create_book(bookmark)
-        sanitize_and_add_images(bookmark, book)
-        cover = create_and_add_cover(bookmark, book)
-        chapter = create_and_add_chapter(bookmark, book)
+        book = create_book(bookmark.title, bookmark.bookmark_id)
+        cover = create_and_add_cover(book, bookmark.title, bookmark.original_title, bookmark.bookmark_id)
+        
+        full_content = sanitize_and_add_images(book, bookmark.sanitized_content)
+        chapter = create_and_add_chapter(book, bookmark.title, bookmark.bookmark_id, full_content)
         add_navigation_files(book, cover, chapter)
-        write_book(bookmark, book)
+        write_book(book, bookmark.book_file_name)
 
 #
 # Downloading content
 #
 def get_content(bookmark):
-    adapt_title_and_file_name(bookmark)        
+    adapt_title_and_file_name(bookmark) 
+    bookmark.bookmark_id = str(bookmark.bookmark_id)       
 
     if bookmark_already_downloaded(bookmark):
         print(f'Skipping {bookmark.original_title}, as corresponding book already exists.')
@@ -76,33 +78,33 @@ def get_and_sanitize_content(bookmark):
 #
 # EPub Creation
 #
-def create_book(bookmark):
+def create_book(title, book_id: str = "") -> epub.EpubBook:
     book = epub.EpubBook()
-    book.set_identifier(str(bookmark.bookmark_id))
-    book.set_title(bookmark.title)
+    book.set_identifier(book_id)
+    book.set_title(title)
     return book
 
-def create_and_add_cover(bookmark, book):
-    cover_content = f'<html><body><h1 style="width: 70%; margin: 0 auto;">{bookmark.original_title}</h1></body></html>'
+def create_and_add_cover(book: epub.EpubBook, title: str, original_title: str, book_id: str):
+    cover_content = f'<html><body><h1 style="width: 70%; margin: 0 auto;">{original_title}</h1></body></html>'
     cover = epub.EpubHtml(
-        title=bookmark.title, 
-        file_name=f'{bookmark.bookmark_id}_cover.xhtml')
+        title=title, 
+        file_name=f'{book_id}_cover.xhtml')
     cover.content = cover_content
     book.add_item(cover)
     return cover
 
-def create_and_add_chapter(bookmark, book):
+def create_and_add_chapter(book: epub.EpubBook, title: str, book_id: str, sanitized_content: str) -> epub.EpubHtml:
     chapter = epub.EpubHtml(
-        title=bookmark.title, 
-        file_name=f'{bookmark.bookmark_id}.xhtml')
-    chapter.content = bookmark.sanitized_content
+        title=title, 
+        file_name=f'{book_id}.xhtml')
+    chapter.content = sanitized_content
     book.add_item(chapter)
     return chapter
 
-def sanitize_and_add_images(bookmark, book):
-    bookmark.sanitized_content = shrink_replace_and_add_images(bookmark.sanitized_content, book)
+def sanitize_and_add_images(book: epub.EpubBook, sanitized_content: str) -> str:
+    return shrink_replace_and_add_images(book, sanitized_content)
 
-def add_navigation_files(book, cover, chapter):
+def add_navigation_files(book: epub.EpubBook, cover: epub.EpubCover, chapter):
     book.toc = (cover,chapter,)
     
     # Add navigation files
@@ -112,19 +114,19 @@ def add_navigation_files(book, cover, chapter):
     # Define the spine of the book
     book.spine = [cover, chapter,]
 
-def write_book(bookmark, book):
-    epub.write_epub(f'./books/{bookmark.book_file_name}.epub', book, {})
+def write_book(book: epub.EpubBook, book_file_name:str):
+    epub.write_epub(f'./books/{book_file_name}.epub', book, {})
 
 
 #
 # Sanitizing content
 #
-def make_safe_filename(s):
+def make_safe_filename(file_name: str) -> str:
     # Define a whitelist of characters that are allowed in filenames
     valid_chars = "-_.() %s%s" % (string.ascii_letters, string.digits)
 
     # Remove all characters from the string that are not in the whitelist
-    safe_filename = ''.join(c for c in s if c in valid_chars)
+    safe_filename = ''.join(c for c in file_name if c in valid_chars)
 
     # Replace spaces with underscores
     safe_filename = safe_filename.replace(' ', '_')
@@ -134,7 +136,7 @@ def make_safe_filename(s):
 
     return safe_filename
 
-def shrink_replace_and_add_images(html, book):
+def shrink_replace_and_add_images(book, html) -> str:
     soup = BeautifulSoup(html, 'html.parser')
     replaced_images = dict()
 
@@ -177,7 +179,7 @@ def shrink_replace_and_add_images(html, book):
 
     return str(soup)
 
-def replace_imgs_with_alt_text(html_content):
+def replace_imgs_with_alt_text(html_content) -> str:
     soup = BeautifulSoup(html_content, 'html.parser')
     for img in soup.find_all('img'):
         if not replace_img_with_alt_text(img, soup): 
@@ -185,7 +187,7 @@ def replace_imgs_with_alt_text(html_content):
             img.decompose()
     return str(soup)
 
-def replace_img_with_alt_text(img, soup):
+def replace_img_with_alt_text(img, soup) -> bool:
     alt_text = img.get('alt')
     if alt_text:
         # Preserve the image content by using the alt text
@@ -196,15 +198,12 @@ def replace_img_with_alt_text(img, soup):
     else:
         return False
     
-def convert_image(image_data, filename):
+def convert_image(image_data) -> bytes:
     image = Image.open(io.BytesIO(image_data))
     image = image.convert('L')
-    image.save(filename)
+    return image.tobytes()
 
-    with open(filename, 'rb') as f:
-        return f.read()
-
-def add_image_to_book(book, url_file_name, image_data):
+def add_image_to_book(book, url_file_name, image_data) -> None:
     img_path = Path(url_file_name)
     book_image = epub.EpubItem(uid=img_path.name, 
         file_name=url_file_name, 
