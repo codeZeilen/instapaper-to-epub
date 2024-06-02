@@ -1,4 +1,5 @@
 from instapaper import Instapaper
+from instapaper import Bookmark
 from ebooklib import epub
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -11,6 +12,7 @@ import io
 import mimetypes as mime
 import hashlib
 from urllib.parse import urlparse
+from typing import Optional
 
 with open("oauth_config.json", "r") as f:
     oauth_config = json.load(f)
@@ -34,20 +36,16 @@ def download():
         if not get_content(bookmark):
             continue
 
-        book = create_book(bookmark.title, bookmark.bookmark_id)
-        cover = create_and_add_cover(book, bookmark.title, bookmark.original_title, bookmark.bookmark_id)
-        
-        full_content = sanitize_and_add_images(book, bookmark.sanitized_content)
-        chapter = create_and_add_chapter(book, bookmark.title, bookmark.bookmark_id, full_content)
-        add_navigation_files(book, cover, chapter)
+        book = create_full_book(bookmark.bookmark_id, bookmark.original_title, bookmark.sanitized_content)
         write_book(book, bookmark.book_file_name)
 
 #
 # Downloading content
 #
-def get_content(bookmark):
-    adapt_title_and_file_name(bookmark) 
-    bookmark.bookmark_id = str(bookmark.bookmark_id)       
+def get_content(bookmark) -> Optional[Bookmark]:
+    adapt_title(bookmark) 
+    bookmark.bookmark_id = str(bookmark.bookmark_id)    
+    bookmark.book_file_name = make_safe_filename(bookmark.title)
 
     if bookmark_already_downloaded(bookmark):
         print(f'Skipping {bookmark.original_title}, as corresponding book already exists.')
@@ -61,10 +59,9 @@ def get_content(bookmark):
 
     return bookmark
 
-def adapt_title_and_file_name(bookmark):
+def adapt_title(bookmark):
     bookmark.original_title = bookmark.title
     bookmark.title = 'Instapaper: ' + bookmark.title
-    bookmark.book_file_name = make_safe_filename(bookmark.title)
 
 def bookmark_already_downloaded(bookmark):
     return (books_folder / f'{bookmark.book_file_name}.epub').exists()
@@ -78,33 +75,45 @@ def get_and_sanitize_content(bookmark):
 #
 # EPub Creation
 #
-def create_book(title, book_id: str = "") -> epub.EpubBook:
+def create_full_book(bookmark_id, title, sanitized_content) -> epub.EpubBook:
+    book = new_book(title, bookmark_id)
+
+    cover = create_cover(title, bookmark_id)
+    book.add_item(cover)
+
+    full_content = sanitize_and_add_images(book, sanitized_content)
+    chapter = create_chapter(title, bookmark_id, full_content)
+    book.add_item(chapter)
+
+    add_navigation_files(book, cover, chapter)
+
+    return book
+
+def new_book(title, book_id: str = "") -> epub.EpubBook:
     book = epub.EpubBook()
     book.set_identifier(book_id)
     book.set_title(title)
     return book
 
-def create_and_add_cover(book: epub.EpubBook, title: str, original_title: str, book_id: str):
-    cover_content = f'<html><body><h1 style="width: 70%; margin: 0 auto;">{original_title}</h1></body></html>'
+def create_cover(title: str, book_id: str):
+    cover_content = f'<html><body><h1 style="width: 70%; margin: 0 auto;">{title}</h1></body></html>'
     cover = epub.EpubHtml(
         title=title, 
         file_name=f'{book_id}_cover.xhtml')
     cover.content = cover_content
-    book.add_item(cover)
     return cover
 
-def create_and_add_chapter(book: epub.EpubBook, title: str, book_id: str, sanitized_content: str) -> epub.EpubHtml:
+def create_chapter(title: str, book_id: str, sanitized_content: str) -> epub.EpubHtml:
     chapter = epub.EpubHtml(
         title=title, 
         file_name=f'{book_id}.xhtml')
     chapter.content = sanitized_content
-    book.add_item(chapter)
     return chapter
 
 def sanitize_and_add_images(book: epub.EpubBook, sanitized_content: str) -> str:
     return shrink_replace_and_add_images(book, sanitized_content)
 
-def add_navigation_files(book: epub.EpubBook, cover: epub.EpubCover, chapter):
+def add_navigation_files(book: epub.EpubBook, cover: epub.EpubCover, chapter) -> None:
     book.toc = (cover,chapter,)
     
     # Add navigation files
@@ -160,22 +169,15 @@ def shrink_replace_and_add_images(book, html) -> str:
         image_data = None
         try:
             response = requests.get(img['src'])
-            if response.status_code == 200:
-                image_data = response.content
-        except Exception:
-            pass
-
-        if image_data:
-            try: 
-                image_data = convert_image(image_data, file_path)
-                add_image_to_book(book, url_file_name, image_data)
-                replaced_images[img['src']] = url_file_name
-                img['src'] = url_file_name
-            except:
-                # Something went wrong while parsing/converting/storing the image
-                replace_img_with_alt_text(img, soup)    
-        else:
-            replace_img_with_alt_text(img, soup)
+            response.raise_for_status()
+            
+            image_data = response.content
+            image_data = convert_image(image_data, file_path)
+            add_image_to_book(book, url_file_name, image_data)
+            replaced_images[img['src']] = url_file_name
+            img['src'] = url_file_name
+        except:
+            replace_img_with_alt_text(img, soup)   
 
     return str(soup)
 
