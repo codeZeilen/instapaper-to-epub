@@ -128,6 +128,10 @@ def three_way_diff(online_tree: Dict[int, AnyStr], local_tree: Dict[int, AnyStr]
             # Both changed and they disagree on the change
             # -> we take the online version
             local_diff[bookmark_id] = online_folder
+        elif local_folder == online_folder and local_folder != index_folder:
+            # Both changed but they agree on the change
+            # -> nothing to do 
+            pass
         else:
             print(f"Invalid situation on bookmark {bookmark_id} (online folder: {online_folder}, local folder: {local_folder}, index folder: {index_folder})",file=sys.stderr)
             sys.exit(1)
