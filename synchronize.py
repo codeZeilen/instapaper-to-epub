@@ -8,24 +8,20 @@ import json
 import os
 import sys
 
+NUM_BOOKMARKS_TO_SYNCHRONIZE = 1000000
+
 # TODO: Handle deletion of bookmarks
+# TODO: Consider speeding up synchronization using hashes and "having"
+# TODO: Fix empty title and wrong markup cases
 
-if len(sys.argv) > 1:
-    num_bookmarks_to_synchronize = int(sys.argv[1])
-else:
-    num_bookmarks_to_synchronize = 100
-
-with open("oauth_config.json", "r") as f:
-    oauth_config = json.load(f)
-with open("user_credentials.json", "r") as f:
-    user_credentials = json.load(f)
-instapaper = Instapaper(oauth_config['id'], oauth_config['secret'])
-instapaper.login(user_credentials['username'], user_credentials['password'])
-
-online_folders: Iterable[Dict[AnyStr, AnyStr]] = [{'title': folder['title'], 'folder_id': str(folder['folder_id'])}  for folder in instapaper.folders()] + [{'title': "unread", 'folder_id': "unread"}, {'title': "archive", 'folder_id': "archive"}]
-local_folders = [{'title' : f.name.split("_")[:-1], 
+def synchronize():
+    online_folders: Iterable[Dict[AnyStr, AnyStr]] = [{'title': folder['title'], 'folder_id': str(folder['folder_id'])}  for folder in instapaper.folders()] + [{'title': "unread", 'folder_id': "unread"}, {'title': "archive", 'folder_id': "archive"}]
+    local_folders = [{'title' : f.name.split("_")[:-1], 
                   'folder_id': f.name.split("_")[-1], 
                   'folder_path' : f} for f in Path('books').iterdir() if f.is_dir()]
+
+    synchronize_folders(online_folders, local_folders)
+    synchronize_bookmarks(online_folders, local_folders)
 
 def folder_to_directory_name(folder):
     return "_".join(folder['title'].split(" ")) + "_" + str(folder['folder_id'])
@@ -46,18 +42,19 @@ def synchronize_folders(online_folders, local_folders):
         shutil.move(Path('books') / folder_to_directory_name(folder), 
                     Path('books') / 'deleted' / folder_to_directory_name(folder))
 
-def synchronize_bookmarks():
-    # Actual synchronize: Three way merge between the online version, the local version, and a stored index
+def synchronize_bookmarks(online_folders: Iterable[Dict], local_folders: Iterable[Dict]):
+    """Actual synchronize: Three way merge between the online version, the local version, and a stored index"""
     # Step 1: Create a tree for online and local version
     print("-- Get Trees --")
-    online_tree, bookmarks = create_tree_from_online_version()
-    local_tree, paths = create_tree_from_local_version()
+    online_tree, bookmarks = create_tree_from_online_version(online_folders)
+    local_tree, paths = create_tree_from_local_version(local_folders)
     if os.path.exists("index.json"):
         with open("index.json", "r") as f:
             index_tree = json.load(f)
             index_tree = {int(k): v for k, v in index_tree.items()}
     else:
-        index_tree = online_tree
+        # In case there is no stored index, we use an empty dictionary. That way the diffing will interpret any inconsitencies as conflicts and resolve them by favoring the online version.
+        index_tree = dict()
 
     print("Discovered online bookmarks: ", len(online_tree))
     print("Discovered local bookmarks: ", len(local_tree))
@@ -71,32 +68,32 @@ def synchronize_bookmarks():
 
     # Step 3: Apply diff to local and online version, conflicts are resolved by favoring online version
     print("-- Apply Diffs --")
-    apply_diff_to_local_version(local_tree, paths, bookmarks, local_diff)
+    apply_diff_to_local_version(local_tree, paths, bookmarks, local_diff, local_folders)
     apply_diff_to_online_version(online_tree, bookmarks, online_diff)
 
     # Step 4: Store resulting tree for next iteration
     print("-- Storing Index --")
-    resulting_tree, _ = create_tree_from_local_version()
+    resulting_tree, _ = create_tree_from_local_version(local_folders)
     with open("index.json", "w") as f:
         json.dump(resulting_tree, f)
    
 
 # Create tree by traversing folders and bookmarks, tree nodes contain bookmark id and bookmark object
-def create_tree_from_online_version() -> Tuple[Dict[int, AnyStr], Dict[int, Bookmark]]:
+def create_tree_from_online_version(online_folders) -> Tuple[Dict[int, AnyStr], Dict[int, Bookmark]]:
     tree : Dict[int, AnyStr] = {}
     bookmarks : Dict[int, Bookmark]  = {}
     folder_ids = [folder['folder_id'] for folder in online_folders]
     for folder_id in folder_ids:
-        for bookmark in instapaper.bookmarks(folder=folder_id, limit=num_bookmarks_to_synchronize):
+        for bookmark in instapaper.bookmarks(folder=folder_id, limit=NUM_BOOKMARKS_TO_SYNCHRONIZE):
             tree[bookmark.bookmark_id] = str(folder_id)
             bookmarks[bookmark.bookmark_id] = bookmark
 
     return tree, bookmarks
 
-def create_tree_from_local_version() -> Tuple[Dict[int, AnyStr], Dict[int, Bookmark]]:
+def create_tree_from_local_version(local_folders) -> Tuple[Dict[int, AnyStr], Dict[int, Bookmark]]:
     tree = {}
     paths = {}
-    for folder in [x for x in Path('books').iterdir() if x.is_dir()]:
+    for folder in map(lambda x: x['folder_path'], local_folders):
         folder_id = folder.name.split('_')[-1]
         for book in folder.iterdir():
             book_id = int(book.stem.split('_')[-1]) # Extract bookmark id from filename
@@ -106,7 +103,7 @@ def create_tree_from_local_version() -> Tuple[Dict[int, AnyStr], Dict[int, Bookm
     return tree, paths
 
 def three_way_diff(online_tree: Dict[int, AnyStr], local_tree: Dict[int, AnyStr], index_tree: Dict[int, AnyStr]):
-    bookmark_ids = set(online_tree.keys()).union(set(local_tree.keys()).union(set(index_tree.keys())))
+    bookmark_ids = set(online_tree.keys()).intersection(set(local_tree.keys())) 
     local_diff = {}
     online_diff = {}
 
@@ -138,7 +135,7 @@ def three_way_diff(online_tree: Dict[int, AnyStr], local_tree: Dict[int, AnyStr]
     
     return local_diff, online_diff
 
-def apply_diff_to_local_version(tree, paths, bookmarks, local_diff : Dict):
+def apply_diff_to_local_version(tree, paths, bookmarks, local_diff : Dict, local_folders : Iterable[Dict]):
     for bookmark_id, folder_id in local_diff.items():
         folders = [f for f in local_folders if f["folder_id"] == folder_id]
         if not folders:
@@ -152,7 +149,7 @@ def apply_diff_to_local_version(tree, paths, bookmarks, local_diff : Dict):
             # Find local folder
             shutil.move(paths[bookmark_id], folder / paths[bookmark_id].name)
 
-def apply_diff_to_online_version(tree, bookmarks, online_diff : Dict):
+def apply_diff_to_online_version(tree, bookmarks: Dict[int, Bookmark], online_diff : Dict):
     for bookmark_id, folder_id in online_diff.items():
         if folder_id == "unread":
             bookmarks[bookmark_id].unarchive()
@@ -164,5 +161,12 @@ def apply_diff_to_online_version(tree, bookmarks, online_diff : Dict):
             raise Exception("Bookmark not found in local tree. Uploading bookmarks is not supported.")
         
 if __name__ == '__main__':
-    synchronize_folders(online_folders, local_folders)
-    synchronize_bookmarks()
+    # NOTE: Consider refactoring to a class
+    with open("oauth_config.json", "r") as f:
+        oauth_config = json.load(f)
+    with open("user_credentials.json", "r") as f:
+        user_credentials = json.load(f)
+    instapaper = Instapaper(oauth_config['id'], oauth_config['secret'])
+    instapaper.login(user_credentials['username'], user_credentials['password'])
+
+    synchronize()
