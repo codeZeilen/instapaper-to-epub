@@ -169,7 +169,7 @@ def shrink_replace_and_add_images(book, html) -> str:
         file_path = tmp_images_folder / url_file_name
         
         # Special Cases
-        if (not file_path.suffix) or (file_path.suffix in ('.html', '.svg', '.webp')):
+        if (not file_path.suffix) or (file_path.suffix not in ('.jpg', '.jpeg', '.gif', '.png', '.bmp', '.tiff')):
             replace_img_with_alt_text(img, soup)
             continue
 
