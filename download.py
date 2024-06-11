@@ -1,5 +1,4 @@
-from instapaper import Instapaper
-from instapaper import Bookmark
+from instapaper import Instapaper, Bookmark
 from ebooklib import epub
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -22,22 +21,25 @@ instapaper = Instapaper(oauth_config['id'], oauth_config['secret'])
 instapaper.login(user_credentials['username'], user_credentials['password'])
 
 if len(sys.argv) > 1:
-    num_bookmarks_to_retrieve = sys.argv[1]
+    num_bookmarks_to_retrieve = int(sys.argv[1])
 else:
     num_bookmarks_to_retrieve = 70
 
-books_folder = Path('books')
+books_folder = Path('./books')
 books_folder.mkdir(exist_ok=True)
 tmp_images_folder = Path('./tmp_images')
 tmp_images_folder.mkdir(exist_ok=True)
 
 def download():
     for bookmark in instapaper.bookmarks(limit=num_bookmarks_to_retrieve):
-        if not get_content(bookmark):
-            continue
+        download_bookmark_to_folder(bookmark)
 
-        book = create_full_book(bookmark.bookmark_id, bookmark.original_title, bookmark.sanitized_content)
-        write_book(book, bookmark.book_file_name)
+def download_bookmark_to_folder(bookmark, folder_path : Path = books_folder):
+    if not get_content(bookmark):
+        return
+
+    book = create_full_book(bookmark.bookmark_id, bookmark.original_title, bookmark.sanitized_content)
+    write_book(book, bookmark.book_file_name, folder_path)
 
 #
 # Downloading content
@@ -45,7 +47,7 @@ def download():
 def get_content(bookmark) -> Optional[Bookmark]:
     adapt_title(bookmark) 
     bookmark.bookmark_id = str(bookmark.bookmark_id)    
-    bookmark.book_file_name = make_safe_filename(bookmark.title)
+    bookmark.book_file_name = generate_file_name(bookmark)
 
     if bookmark_already_downloaded(bookmark):
         print(f'Skipping {bookmark.original_title}, as corresponding book already exists.')
@@ -71,6 +73,8 @@ def get_and_sanitize_content(bookmark):
     if bookmark.sanitized_content:
         bookmark.sanitized_content = bookmark.sanitized_content.strip()
 
+def generate_file_name(bookmark: Bookmark) -> str:
+    return make_safe_filename(bookmark.title) + '_' + bookmark.bookmark_id
 
 #
 # EPub Creation
@@ -123,8 +127,8 @@ def add_navigation_files(book: epub.EpubBook, cover: epub.EpubCover, chapter) ->
     # Define the spine of the book
     book.spine = [cover, chapter,]
 
-def write_book(book: epub.EpubBook, book_file_name:str):
-    epub.write_epub(f'./books/{book_file_name}.epub', book, {})
+def write_book(book: epub.EpubBook, book_file_name:str, folder_path: Path = books_folder):
+    epub.write_epub(folder_path / f'{book_file_name}.epub', book, {})
 
 
 #
@@ -172,7 +176,7 @@ def shrink_replace_and_add_images(book, html) -> str:
             response.raise_for_status()
             
             image_data = response.content
-            image_data = convert_image(image_data, file_path)
+            image_data = convert_image(image_data)
             add_image_to_book(book, url_file_name, image_data)
             replaced_images[img['src']] = url_file_name
             img['src'] = url_file_name
