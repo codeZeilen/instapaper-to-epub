@@ -8,10 +8,8 @@ import json
 import os
 import sys
 
-NUM_BOOKMARKS_TO_SYNCHRONIZE = 1000000
+NUM_BOOKMARKS_TO_SYNCHRONIZE = 500 # The maximum value the API allows
 
-# TODO: Handle deletion of bookmarks
-# TODO: Consider speeding up synchronization using hashes and "having"
 # TODO: Fix empty title and wrong markup cases
 
 def synchronize():
@@ -23,16 +21,15 @@ def synchronize():
     synchronize_folders(online_folders, local_folders)
     synchronize_bookmarks(online_folders, local_folders)
 
-def folder_to_directory_name(folder):
-    return "_".join(folder['title'].split(" ")) + "_" + str(folder['folder_id'])
-
 def synchronize_folders(online_folders, local_folders):
     online_folder_ids = [folder['folder_id'] for folder in online_folders]
     local_folder_ids = [folder['folder_id'] for folder in local_folders]
-    folders_to_create = set(online_folder_ids) - set(local_folder_ids)
-    folders_to_create = [folder for folder in online_folders if folder['folder_id'] in folders_to_create]
-    folders_to_delete = set(local_folder_ids) - set(online_folder_ids)
-    folders_to_delete = [folder for folder in local_folders if folder['folder_id'] in folders_to_delete]
+    folders_to_create = select_folders(
+        set(online_folder_ids) - set(local_folder_ids), 
+        online_folders)
+    folders_to_delete = select_folders(
+        set(local_folder_ids) - set(online_folder_ids), 
+        local_folders)
 
     for folder in folders_to_create:
         (Path('books') / folder_to_directory_name(folder)).mkdir()
@@ -41,6 +38,12 @@ def synchronize_folders(online_folders, local_folders):
         # Move to not delete in case of error
         shutil.move(Path('books') / folder_to_directory_name(folder), 
                     Path('books') / 'deleted' / folder_to_directory_name(folder))
+
+def select_folders(folder_ids, folders):
+    return [folder for folder in folders if folder['folder_id'] in folder_ids]
+
+def folder_to_directory_name(folder):
+    return "_".join(folder['title'].split(" ")) + "_" + str(folder['folder_id'])
 
 def synchronize_bookmarks(online_folders: Iterable[Dict], local_folders: Iterable[Dict]):
     """Actual synchronize: Three way merge between the online version, the local version, and a stored index"""
@@ -108,7 +111,7 @@ def three_way_diff(online_tree: Dict[int, AnyStr], local_tree: Dict[int, AnyStr]
     online_diff = {}
 
     for bookmark_id in bookmark_ids:
-        # TODO: the following default keys ignore the case where a bookmark is deleted
+        # NOTE: The following default keys ignore the case in which a bookmark is deleted
         online_folder = online_tree.get(bookmark_id, None)
         local_folder = local_tree.get(bookmark_id, None)
         index_folder = index_tree.get(bookmark_id, None)
@@ -146,7 +149,6 @@ def apply_diff_to_local_version(tree, paths, bookmarks, local_diff : Dict, local
             download_bookmark_to_folder(bookmarks[bookmark_id], folder.absolute())
         else:
             # We have the book, move it to the folder
-            # Find local folder
             shutil.move(paths[bookmark_id], folder / paths[bookmark_id].name)
 
 def apply_diff_to_online_version(tree, bookmarks: Dict[int, Bookmark], online_diff : Dict):
