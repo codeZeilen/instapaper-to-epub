@@ -7,6 +7,7 @@ from download import download_bookmark_to_folder
 import json
 import os
 import sys
+import time
 
 NUM_BOOKMARKS_TO_SYNCHRONIZE = 500 # The maximum value the API allows
 
@@ -106,7 +107,7 @@ def create_tree_from_local_version(local_folders) -> Tuple[Dict[int, AnyStr], Di
     return tree, paths
 
 def three_way_diff(online_tree: Dict[int, AnyStr], local_tree: Dict[int, AnyStr], index_tree: Dict[int, AnyStr]):
-    bookmark_ids = set(online_tree.keys()).intersection(set(local_tree.keys())) 
+    bookmark_ids = online_tree.keys()
     local_diff = {}
     online_diff = {}
 
@@ -147,6 +148,8 @@ def apply_diff_to_local_version(tree, paths, bookmarks, local_diff : Dict, local
         if not bookmark_id in tree.keys():
             # Download and store book
             download_bookmark_to_folder(bookmarks[bookmark_id], folder.absolute())
+            # Wait for 1 second to give server a break
+            time.sleep(1)
         else:
             # We have the book, move it to the folder
             shutil.move(paths[bookmark_id], folder / paths[bookmark_id].name)

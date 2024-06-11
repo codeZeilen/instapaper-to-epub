@@ -13,6 +13,8 @@ import hashlib
 from urllib.parse import urlparse
 from typing import Optional
 
+BOOK_FILE_PREFIX = "InPa"
+
 with open("oauth_config.json", "r") as f:
     oauth_config = json.load(f)
 with open("user_credentials.json", "r") as f:
@@ -53,7 +55,7 @@ def get_content(bookmark) -> Optional[Bookmark]:
         print(f'Skipping {bookmark.original_title}, as corresponding book already exists.')
         return None
     
-    print(f'Downloading {bookmark.title}')
+    print(f'Downloading {bookmark.title if bookmark.title else bookmark.url}')
     get_and_sanitize_content(bookmark)
     if not bookmark.sanitized_content:
         print(f'Skipping {bookmark.title} due to empty content.')
@@ -63,15 +65,21 @@ def get_content(bookmark) -> Optional[Bookmark]:
 
 def adapt_title(bookmark):
     bookmark.original_title = bookmark.title
-    bookmark.title = 'Instapaper: ' + bookmark.title
+    if not bookmark.title:
+        bookmark.title = bookmark.url
+    bookmark.title = f'{BOOK_FILE_PREFIX}: {bookmark.title}'
 
 def bookmark_already_downloaded(bookmark):
     return (books_folder / f'{bookmark.book_file_name}.epub').exists()
 
 def get_and_sanitize_content(bookmark):
-    bookmark.sanitized_content = bookmark.html
-    if bookmark.sanitized_content:
+    if bookmark.original_title:
+        bookmark.sanitized_content = bookmark.html
         bookmark.sanitized_content = bookmark.sanitized_content.strip()
+    else:
+        # This is a bookmark without content
+        bookmark.sanitized_content = "no content"
+        
 
 def generate_file_name(bookmark: Bookmark) -> str:
     return make_safe_filename(bookmark.title) + '_' + bookmark.bookmark_id
