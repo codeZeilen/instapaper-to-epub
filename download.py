@@ -136,8 +136,13 @@ def add_navigation_files(book: epub.EpubBook, cover: epub.EpubCover, chapter) ->
     book.spine = [cover, chapter,]
 
 def write_book(book: epub.EpubBook, book_file_name:str, folder_path: Path = books_folder):
-    epub.write_epub(folder_path / f'{book_file_name}.epub', book, {})
-
+    book_file_path = folder_path / f'{book_file_name}.epub'
+    try: 
+        epub.write_epub(book_file_path, book, {})
+    except Exception as e:
+        print(f'Error writing book {book_file_name}: {e}')
+        book_file_path.unlink()
+        raise e
 
 #
 # Sanitizing content
