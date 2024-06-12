@@ -15,6 +15,62 @@ from typing import Optional
 
 BOOK_FILE_PREFIX = "InPa"
 
+class ExtendedBookmark(object):
+    book_file_name: str
+    original_title: str
+    sanitized_content: str
+
+    def __init__(self, bookmark: Bookmark):
+        self.bookmark = bookmark
+
+    def __getattr__(self, name):
+        return getattr(self.bookmark, name)
+
+     #
+    # Downloading content
+    #
+    def get_content(self) -> Optional["ExtendedBookmark"]:
+        self.adapt_title() 
+        self.bookmark_id = str(self.bookmark_id)    
+        self.book_file_name = self.generate_file_name()
+
+        print(f'Downloading {self.title if self.title else self.url}')
+        self.get_and_sanitize_content()
+        if not self.sanitized_content:
+            print(f'Skipping {self.title} due to empty content.')
+            return None
+
+        return self
+
+    def adapt_title(self):
+        self.original_title = self.title
+        if not self.title:
+            self.title = self.url
+        self.title = f'{BOOK_FILE_PREFIX}: {self.title}'
+
+    def get_and_sanitize_content(self):
+        self.sanitized_content = self.html if self.html else "no content"
+        self.sanitized_content = self.sanitized_content.strip()
+            
+    def generate_file_name(self) -> str:
+        return self.make_safe_filename(self.title) + '_' + self.bookmark_id    
+
+    def make_safe_filename(self, file_name: str) -> str:
+        # Define a whitelist of characters that are allowed in filenames
+        valid_chars = "-_.() %s%s" % (string.ascii_letters, string.digits)
+
+        # Remove all characters from the string that are not in the whitelist
+        safe_filename = ''.join(c for c in file_name if c in valid_chars)
+
+        # Replace spaces with underscores
+        safe_filename = safe_filename.replace(' ', '_')
+
+        # Shorten filename
+        safe_filename = safe_filename[:100]
+
+        return safe_filename
+
+
 class BookmarkDownloader(object):
 
     def __init__(self, instapaper: Optional[Instapaper] = None):
@@ -36,50 +92,22 @@ class BookmarkDownloader(object):
 
     def download(self, num_bookmarks_to_retrieve: int = 70):
         for bookmark in self.instapaper.bookmarks(limit=num_bookmarks_to_retrieve):
+            if self.bookmark_already_downloaded(bookmark):
+                print(f'Skipping {bookmark.original_title}, as corresponding book already exists.')
+                continue
+      
             self.download_bookmark_to_folder(bookmark, self.books_folder)
 
     def download_bookmark_to_folder(self, bookmark, folder_path : Path):
-        if not self.get_content(bookmark):
+        bookmark = ExtendedBookmark(bookmark)
+        if not bookmark.get_content():
             return
 
         book = self.create_full_book(bookmark.bookmark_id, bookmark.original_title, bookmark.sanitized_content)
         self.write_book(book, bookmark.book_file_name, folder_path)
 
-    #
-    # Downloading content
-    #
-    def get_content(self, bookmark) -> Optional[Bookmark]:
-        self.adapt_title(bookmark) 
-        bookmark.bookmark_id = str(bookmark.bookmark_id)    
-        bookmark.book_file_name = self.generate_file_name(bookmark)
-
-        if self.bookmark_already_downloaded(bookmark):
-            print(f'Skipping {bookmark.original_title}, as corresponding book already exists.')
-            return None
-        
-        print(f'Downloading {bookmark.title if bookmark.title else bookmark.url}')
-        self.get_and_sanitize_content(bookmark)
-        if not bookmark.sanitized_content:
-            print(f'Skipping {bookmark.title} due to empty content.')
-            return None
-
-        return bookmark
-
-    def adapt_title(self, bookmark):
-        bookmark.original_title = bookmark.title
-        if not bookmark.title:
-            bookmark.title = bookmark.url
-        bookmark.title = f'{BOOK_FILE_PREFIX}: {bookmark.title}'
-
     def bookmark_already_downloaded(self, bookmark):
         return (self.books_folder / f'{bookmark.book_file_name}.epub').exists()
-
-    def get_and_sanitize_content(self, bookmark):
-        bookmark.sanitized_content = bookmark.html if bookmark.html else "no content"
-        bookmark.sanitized_content = bookmark.sanitized_content.strip()
-            
-    def generate_file_name(self, bookmark: Bookmark) -> str:
-        return self.make_safe_filename(bookmark.title) + '_' + bookmark.bookmark_id
 
     #
     # EPub Creation
@@ -144,28 +172,12 @@ class BookmarkDownloader(object):
     #
     # Sanitizing content
     #
-    @classmethod
-    def make_safe_filename(klass, file_name: str) -> str:
-        # Define a whitelist of characters that are allowed in filenames
-        valid_chars = "-_.() %s%s" % (string.ascii_letters, string.digits)
-
-        # Remove all characters from the string that are not in the whitelist
-        safe_filename = ''.join(c for c in file_name if c in valid_chars)
-
-        # Replace spaces with underscores
-        safe_filename = safe_filename.replace(' ', '_')
-
-        # Shorten filename
-        safe_filename = safe_filename[:100]
-
-        return safe_filename
-
     def shrink_replace_and_add_images(self, book, html) -> str:
         soup = BeautifulSoup(html, 'html.parser')
         replaced_images = dict()
 
         images = soup.find_all('img')
-        images = filter(lambda i: i.has_attr('src') and not i['src'].startswith('data:'), images)
+        images = set(filter(lambda i: i.has_attr('src') and not i['src'].startswith('data:'), images))
         for img in images:  
             image_url = urlparse(img['src']) 
             url_file_name = hashlib.md5(img['src'].encode('utf-8')).hexdigest() + image_url.path.split('/')[-1]
@@ -194,14 +206,6 @@ class BookmarkDownloader(object):
             except:
                 self.replace_img_with_alt_text(img, soup)   
 
-        return str(soup)
-
-    def replace_imgs_with_alt_text(self, html_content) -> str:
-        soup = BeautifulSoup(html_content, 'html.parser')
-        for img in soup.find_all('img'):
-            if not self.replace_img_with_alt_text(img, soup): 
-                # Just remove the image right away
-                img.decompose()
         return str(soup)
 
     def replace_img_with_alt_text(self, img, soup) -> bool:
