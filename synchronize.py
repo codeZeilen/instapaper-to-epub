@@ -11,8 +11,6 @@ import time
 
 NUM_BOOKMARKS_TO_SYNCHRONIZE = 500 # The maximum value the API allows
 
-# TODO: Fix empty title and wrong markup cases
-
 class BookmarkSynchronizer(object):
 
     def __init__(self):
@@ -186,7 +184,6 @@ class BookmarkSynchronizer(object):
                 raise Exception("Bookmark not found in local tree. Uploading bookmarks is not supported.")
         
 if __name__ == '__main__':
-    # NOTE: Consider refactoring to a class
     synchronizer = BookmarkSynchronizer()
     synchronizer.login()
     synchronizer.synchronize()
