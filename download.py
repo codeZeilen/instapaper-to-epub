@@ -235,7 +235,7 @@ class BookmarkDownloader(object):
         if alt_text:
             # Preserve the image content by using the alt text
             alt_par = soup.new_tag('p')
-            alt_par.wrap(alt_text)
+            alt_par.string = alt_text
             img.replace_with(alt_par)
             return True
         else:
