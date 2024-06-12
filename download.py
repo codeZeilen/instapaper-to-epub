@@ -16,24 +16,25 @@ from typing import Optional
 BOOK_FILE_PREFIX = "InPa"
 
 class ExtendedBookmark(object):
-    book_file_name: str
-    original_title: str
+    _book_file_name: str
+    _original_title: str
+    _bookmark_id: str
     sanitized_content: str
 
     def __init__(self, bookmark: Bookmark):
         self.bookmark = bookmark
+        self._book_file_name = ""
+        self._original_title = ""
+        self._bookmark_id = ""
+        self.sanitized_content = ""
 
     def __getattr__(self, name):
         return getattr(self.bookmark, name)
 
-     #
+    #
     # Downloading content
     #
-    def get_content(self) -> Optional["ExtendedBookmark"]:
-        self.adapt_title() 
-        self.bookmark_id = str(self.bookmark_id)    
-        self.book_file_name = self.generate_file_name()
-
+    def get_content(self) -> Optional["ExtendedBookmark"]:   
         print(f'Downloading {self.title if self.title else self.url}')
         self.get_and_sanitize_content()
         if not self.sanitized_content:
@@ -41,19 +42,40 @@ class ExtendedBookmark(object):
             return None
 
         return self
-
-    def adapt_title(self):
-        self.original_title = self.title
-        if not self.title:
-            self.title = self.url
-        self.title = f'{BOOK_FILE_PREFIX}: {self.title}'
-
+    
     def get_and_sanitize_content(self):
         self.sanitized_content = self.html if self.html else "no content"
         self.sanitized_content = self.sanitized_content.strip()
+    
+    #
+    # Adapting Bookmark properties
+    #
+    @property
+    def bookmark_id(self) -> str:
+        if not self._bookmark_id:
+            self._bookmark_id = str(self.bookmark.bookmark_id)
+        return self._bookmark_id
+
+    @property
+    def title(self) -> str:        
+        if not self._original_title:
+            self._original_title = self.bookmark.title
+            if not self.bookmark.title:
+                self._title = self.url
+            self._title = f'{BOOK_FILE_PREFIX}: {self.bookmark.title}'
+        return self._title
+    
+    @property
+    def original_title(self) -> str:
+        if not self._original_title:
+            self.title # to force initialization
+        return self._original_title
             
-    def generate_file_name(self) -> str:
-        return self.make_safe_filename(self.title) + '_' + self.bookmark_id    
+    @property
+    def book_file_name(self) -> str:
+        if not self._book_file_name:
+            self._book_file_name = self.make_safe_filename(self.title) + '_' + self.bookmark_id
+        return self._book_file_name
 
     def make_safe_filename(self, file_name: str) -> str:
         # Define a whitelist of characters that are allowed in filenames
@@ -92,14 +114,14 @@ class BookmarkDownloader(object):
 
     def download(self, num_bookmarks_to_retrieve: int = 70):
         for bookmark in self.instapaper.bookmarks(limit=num_bookmarks_to_retrieve):
-            if self.bookmark_already_downloaded(bookmark):
-                print(f'Skipping {bookmark.original_title}, as corresponding book already exists.')
-                continue
-      
             self.download_bookmark_to_folder(bookmark, self.books_folder)
 
     def download_bookmark_to_folder(self, bookmark, folder_path : Path):
         bookmark = ExtendedBookmark(bookmark)
+        if self.bookmark_already_downloaded(bookmark):
+            print(f'Skipping {bookmark.original_title}, as corresponding book already exists.')
+            return
+      
         if not bookmark.get_content():
             return
 
