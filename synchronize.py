@@ -25,12 +25,18 @@ class BookmarkSynchronizer(object):
         self.instapaper = Instapaper(oauth_config['id'], oauth_config['secret'])
         self.instapaper.login(user_credentials['username'], user_credentials['password'])
 
-    def synchronize(self):
-        online_folders: Iterable[Dict[AnyStr, AnyStr]] = [{'title': folder['title'], 'folder_id': str(folder['folder_id'])}  for folder in self.instapaper.folders()] + [{'title': "unread", 'folder_id': "unread"}, {'title': "archive", 'folder_id': "archive"}]
-        local_folders = [{'title' : f.name.split("_")[:-1], 
+    def online_folder_list(self) -> Iterable[Dict[AnyStr, AnyStr]]:
+        return [{'title': folder['title'], 'folder_id': str(folder['folder_id'])}  for folder in self.instapaper.folders()] + [{'title': "unread", 'folder_id': "unread"}, {'title': "archive", 'folder_id': "archive"}]
+
+    def local_folder_list(self):
+        return [{'title' : f.name.split("_")[:-1], 
                     'folder_id': f.name.split("_")[-1], 
                     'folder_path' : f} for f in Path('books').iterdir() if f.is_dir()]
 
+
+    def synchronize(self):
+        online_folders = self.online_folder_list()
+        local_folders = self.local_folder_list()
         self.synchronize_folders(online_folders, local_folders)
         self.synchronize_bookmarks(online_folders, local_folders)
 
