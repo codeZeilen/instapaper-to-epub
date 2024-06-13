@@ -7,8 +7,8 @@ Current features:
  - Synchronizing unread and archive
 
 Current limitations:
- - Only synchronizes up to the API limit of 500 articles 
- - Does not delete articles (Due to the API limit, actual deletions are indistinguishable from articles disappearing behind the API limit)
+ - Only synchronizes up to the API limit of 500 articles thus this tool is not suitable for archiving your whole Instapaper collection
+ - Does not delete articles online that were deleted locally
  - Some articles result in EPUB files that can not be opened in some ebook readers (e.g. Tolino).
 
 ## Installation

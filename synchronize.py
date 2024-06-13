@@ -112,7 +112,7 @@ class BookmarkSynchronizer(object):
 
         return tree, bookmarks
 
-    def create_tree_from_local_version(self, local_folders) -> Tuple[Dict[int, AnyStr], Dict[int, Bookmark]]:
+    def create_tree_from_local_version(self, local_folders) -> Tuple[Dict[int, AnyStr], Dict[int, Path]]:
         tree = {}
         paths = {}
         for folder in map(lambda x: x['folder_path'], local_folders):
@@ -125,12 +125,11 @@ class BookmarkSynchronizer(object):
         return tree, paths
 
     def three_way_diff(self, online_tree: Dict[int, AnyStr], local_tree: Dict[int, AnyStr], index_tree: Dict[int, AnyStr]):
-        bookmark_ids = online_tree.keys()
+        bookmark_ids = set(online_tree.keys()).union(index_tree.keys())
         local_diff = {}
         online_diff = {}
 
         for bookmark_id in bookmark_ids:
-            # NOTE: The following default keys ignore the case in which a bookmark is deleted
             online_folder = online_tree.get(bookmark_id, None)
             local_folder = local_tree.get(bookmark_id, None)
             index_folder = index_tree.get(bookmark_id, None)
@@ -157,18 +156,22 @@ class BookmarkSynchronizer(object):
         
         return local_diff, online_diff
 
-    def apply_diff_to_local_version(self, tree, paths, bookmarks, local_diff : Dict, local_folders : Iterable[Dict]):
+    def apply_diff_to_local_version(self, tree, paths: Dict[int, Path], bookmarks, local_diff : Dict, local_folders : Iterable[Dict]):
         for bookmark_id, folder_id in local_diff.items():
-            folders = [f for f in local_folders if f["folder_id"] == folder_id]
-            if not folders:
-                sys.exit(f"Folder with id {folder_id} not found.")
-            folder = folders[0]["folder_path"]
-            if not bookmark_id in tree.keys():
-                # We do not yet have the book, download and store book
-                self.download_bookmark_to_folder(bookmarks[bookmark_id], folder.absolute())
+            if folder_id:
+                folders = [f for f in local_folders if f["folder_id"] == folder_id]
+                if not folders:
+                    sys.exit(f"Folder with id {folder_id} not found.")
+                folder = folders[0]["folder_path"]
+                if not bookmark_id in tree.keys():
+                    # We do not yet have the book, download and store book
+                    self.download_bookmark_to_folder(bookmarks[bookmark_id], folder.absolute())
+                else:
+                    # We have the book, move it to the folder
+                    shutil.move(paths[bookmark_id], folder / paths[bookmark_id].name)
             else:
-                # We have the book, move it to the folder
-                shutil.move(paths[bookmark_id], folder / paths[bookmark_id].name)
+                # The file does not exist online anymore (or was not delivered to us, due to the query limit)
+                paths[bookmark_id].unlink()
 
     def download_bookmark_to_folder(self, bookmark, folder_path : Path):
         if not self.downloader:
@@ -184,6 +187,9 @@ class BookmarkSynchronizer(object):
                 bookmarks[bookmark_id].unarchive()
             elif folder_id == "archive":
                 bookmarks[bookmark_id].archive()
+            elif folder_id == None:
+                # This is a local deletion, we ignore these.
+                pass
             elif bookmark_id in tree.keys():
                 bookmarks[bookmark_id].move(folder_id)
             else:

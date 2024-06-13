@@ -230,7 +230,9 @@ class SynchronizationTest(TestCase):
         """We ignore local deletions for now, as there is not failure handling for inconsistent file system operations."""
         self.state_before(online="unread", local=None, index="unread")
         self.synchronizer.synchronize()
-        self.assert_state(online="unread", local=None, index="unread")
+        self.assert_state(online="unread", local=None, index=None)
+        self.synchronizer.synchronize()
+        self.assert_state(online="unread", local="unread", index="unread")
 
     def test_both_deleted(self):
         self.state_before(online=None, local=None, index="unread")
