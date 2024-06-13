@@ -3,3 +3,4 @@ EbookLib>=0.18
 instapaper>=0.4
 Pillow>=9.5
 Requests>=2.31.0
+pyfakefs>=5.5.0
