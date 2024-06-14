@@ -144,7 +144,10 @@ class BookmarkSynchronizer(object):
                 online_diff[bookmark_id] = local_folder
             elif local_folder != index_folder and online_folder != index_folder and local_folder != online_folder:
                 # Both changed and they disagree on the change
-                # -> we take the online version
+                # -> we generally take the online version, but also apply our change in case the online
+                # version was or is not visible anymore due to the API limit
+                if online_folder == None:
+                    online_diff[bookmark_id] = local_folder
                 local_diff[bookmark_id] = online_folder
             elif local_folder == online_folder and local_folder != index_folder:
                 # Both changed but they agree on the change
@@ -180,18 +183,23 @@ class BookmarkSynchronizer(object):
         # Wait for 1 second to give server a break
         time.sleep(1)
 
+    def synthesize_bookmark(self, bookmark_id):
+        return Bookmark(self.instapaper, {"bookmark_id": bookmark_id})
 
     def apply_diff_to_online_version(self, tree, bookmarks: Dict[int, Bookmark], online_diff : Dict):
         for bookmark_id, folder_id in online_diff.items():
+            # We synthesize a bookmark in case it is not visible in the online tree anymore (deleted/too old), 
+            # but we still want to operate on it
+            bookmark = bookmarks[bookmark_id] if bookmark_id in bookmarks else self.synthesize_bookmark(bookmark_id)
             if folder_id == "unread":
-                bookmarks[bookmark_id].unarchive()
+                bookmark.unarchive()
             elif folder_id == "archive":
-                bookmarks[bookmark_id].archive()
+                bookmark.archive()
             elif folder_id == None:
                 # This is a local deletion, we ignore these.
                 pass
             elif bookmark_id in tree.keys():
-                bookmarks[bookmark_id].move(folder_id)
+                bookmark.move(folder_id)
             else:
                 raise Exception("Bookmark not found in local tree. Uploading bookmarks is not supported.")
         

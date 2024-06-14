@@ -7,23 +7,54 @@ from instapaper import Instapaper
 import unittest
 from typing import Optional
 
+# Full table of diffing cases
+# | online | local | index |  
+# |--------|-------|-------|
+# |   a    |   a   |   a   |x 
+# |   a    |   a   |   b   |x
+# |   a    |   a   |   -   |x 
+# |   a    |   b   |   a   |x 
+# |   a    |   b   |   b   |x 
+# |   a    |   b   |   -   |x 
+# |   a    |   -   |   a   |x 
+# |   a    |   -   |   b   |x 
+# |   a    |   -   |   -   |x 
+# |   b    |   a   |   b   |x 
+# |   b    |   a   |   a   |x 
+# |   b    |   a   |   -   |x 
+# |   b    |   b   |   a   |x 
+# |   b    |   b   |   b   |x
+# |   b    |   b   |   -   |x 
+# |   b    |   -   |   a   |x 
+# |   b    |   -   |   b   |x 
+# |   b    |   -   |   -   |x 
+# |   -    |   a   |   a   |x 
+# |   -    |   a   |   b   |x 
+# |   -    |   a   |   -   |x 
+# |   -    |   b   |   a   |x 
+# |   -    |   b   |   b   |x 
+# |   -    |   b   |   -   |x 
+# |   -    |   -   |   a   | 
+# |   -    |   -   |   b   |
+# |   -    |   -   |   -   |x 
 
-# Table of cases to cover:
-# | online | local | index |  description  
+# Table of equivalent cases (x,y can be {a,b})
+# | online | local | index | description  
 # |--------|-------|-------|---------------
-# |   a    |   a   |   a   | none changed 
-# |   a    |   b   |   a   | local changed 
-# |   a    | unread|   a   | locally moved to unread
-# |   a    |archive|   a   | locally moved to archive
-# |   b    |   a   |   a   | online changed 
-# |   b    |   b   |   a   | both changed consistently
-# |   b    |   c   |   a   | both changed inconsistently
-# |   -    |   a   |   a   | online deleted
-# |   a    |   -   |   a   | local deleted
-# |   -    |   -   |   a   | both deleted
-# |   -    |   a   |   -   | local added
-# |   a    |   -   |   -   | online added
-# |   a    |   a   |   -   | both added (or: index was cleared)
+# |   x    |   x   |   x   | none changed
+# |   -    |   -   |   -   | none added
+# |   x    |   x   |   y   | online local changed consistently
+# |   x    |   x   |   -   | both added consistently (or: index cleared)
+# |   x    |   y   |   x   | local changed
+# |   y    |   x   |   x   | online changed
+# |   x    |   y   |   -   | both added inconsistently (or: index cleared)
+# |   x    |   -   |   x   | local deleted
+# |   x    |   -   |   y   | local deleted, online changed
+# |   x    |   -   |   -   | online added
+# |   -    |   x   |   x   | online deleted
+# |   -    |   x   |   y   | online deleted, local changed
+# |   -    |   x   |   -   | local added
+# |   -    |   -   |   x   | both deleted
 
 
 fixture_file_name = "InPa_Test_Bookmark_1.epub"
@@ -68,8 +99,15 @@ class MockedBookmark(object):
 
 class MockedInstapaper(Instapaper):
 
-    def __init__(self, folders):
+    def __init__(self, folders, bookmark):
         self._folders = folders
+        self.http = self
+        self.bookmark = bookmark
+
+    def request(self, url: str, **kwargs):
+        if url.find("archive") > -1:
+            self.bookmark.archive()
+        return {"status": "200"}, None
 
     def folders(self):
         return self._folders.values()
@@ -93,7 +131,7 @@ class SynchronizationTest(TestCase):
         os.chdir('/home/instapaper')
 
         self.synchronizer = BookmarkSynchronizer()
-        self.synchronizer.instapaper = MockedInstapaper(self.folders)
+        self.synchronizer.instapaper = MockedInstapaper(self.folders, self.bookmark)
 
     def folder_name_for_folder(self, folder_id):
         folder = self.folders[folder_id]
@@ -165,6 +203,11 @@ class SynchronizationTest(TestCase):
         self.synchronizer.synchronize()
         self.assert_state(online="1", local="1", index="1")
 
+    def test_no_added(self):
+        self.state_before(online=None, local=None, index=None)
+        self.synchronizer.synchronize()
+        self.assert_state(online=None, local=None, index=None)
+
     def test_local_changed(self):
         self.state_before(online="1", local="2", index="1")
         self.synchronizer.synchronize()
@@ -174,26 +217,6 @@ class SynchronizationTest(TestCase):
         self.state_before(online="2", local="1", index="1")
         self.synchronizer.synchronize()
         self.assert_state(online="2", local="2", index="2")
-
-    def test_local_changed_to_unread(self):
-        self.state_before(online="1", local="unread", index="1")
-        self.synchronizer.synchronize()
-        self.assert_state(online="unread", local="unread", index="unread")
-
-    def test_local_changed_to_archive(self):
-        self.state_before(online="1", local="archive", index="1")
-        self.synchronizer.synchronize()
-        self.assert_state(online="archive", local="archive", index="archive")
-
-    def test_online_changed_to_unread(self):
-        self.state_before(online="unread", local="1", index="1")
-        self.synchronizer.synchronize()
-        self.assert_state(online="unread", local="unread", index="unread")
-
-    def test_online_changed_to_archive(self):
-        self.state_before(online="archive", local="1", index="1")
-        self.synchronizer.synchronize()
-        self.assert_state(online="archive", local="archive", index="archive")
     
     def test_both_changed_consistenly(self):
         self.state_before(online="2", local="2", index="1")
@@ -216,8 +239,13 @@ class SynchronizationTest(TestCase):
         self.synchronizer.synchronize()
         self.assert_state(online=None, local="unread", index="unread")
 
-    def test_both_added_or_index_cleared(self):
+    def test_both_added_consistently_or_index_cleared(self):
         self.state_before(online="unread", local="unread", index=None)
+        self.synchronizer.synchronize()
+        self.assert_state(online="unread", local="unread", index="unread")
+
+    def test_both_added_inconsistently_or_index_cleared(self):
+        self.state_before(online="unread", local="archive", index=None)
         self.synchronizer.synchronize()
         self.assert_state(online="unread", local="unread", index="unread")
 
@@ -226,19 +254,54 @@ class SynchronizationTest(TestCase):
         self.synchronizer.synchronize()
         self.assert_state(online=None, local=None, index=None)
 
+    def test_online_deleted_local_changed(self):
+        self.state_before(online=None, local="archive", index="unread")
+        self.synchronizer.synchronize()
+        # The following models the API behavior to not list bookmarks beyond a count of 500 while still allowing us to operate on those bookmarks.
+        # Thus, locally archiving a bookmark, will put it in the online archive. Normally it would not be listed though.
+        self.assert_state(online="archive", local=None, index=None)
+
     def test_local_deleted(self):
-        """We ignore local deletions for now, as there is not failure handling for inconsistent file system operations."""
+        """We ignore local deletions for now, as there is no failure handling for inconsistent file system operations."""
         self.state_before(online="unread", local=None, index="unread")
         self.synchronizer.synchronize()
         self.assert_state(online="unread", local=None, index=None)
         self.synchronizer.synchronize()
         self.assert_state(online="unread", local="unread", index="unread")
 
+    def test_local_deleted_online_changed(self):
+        """We ignore local deletions for now, as there is not failure handling for inconsistent file system operations."""
+        self.state_before(online="archive", local=None, index="unread")
+        self.synchronizer.synchronize()
+        self.assert_state(online="archive", local="archive", index="archive")
+
     def test_both_deleted(self):
         self.state_before(online=None, local=None, index="unread")
         self.synchronizer.synchronize()
         self.assert_state(online=None, local=None, index=None)
 
+    #
+    # Tests for special patching operations
+    #
+    def test_local_changed_to_unread(self):
+        self.state_before(online="1", local="unread", index="1")
+        self.synchronizer.synchronize()
+        self.assert_state(online="unread", local="unread", index="unread")
+
+    def test_local_changed_to_archive(self):
+        self.state_before(online="1", local="archive", index="1")
+        self.synchronizer.synchronize()
+        self.assert_state(online="archive", local="archive", index="archive")
+
+    def test_online_changed_to_unread(self):
+        self.state_before(online="unread", local="1", index="1")
+        self.synchronizer.synchronize()
+        self.assert_state(online="unread", local="unread", index="unread")
+
+    def test_online_changed_to_archive(self):
+        self.state_before(online="archive", local="1", index="1")
+        self.synchronizer.synchronize()
+        self.assert_state(online="archive", local="archive", index="archive")
 
 if __name__ == '__main__':
     unittest.main()
